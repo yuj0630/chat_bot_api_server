@@ -5,7 +5,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 # 컨트롤 라우터 선언
 from chat_bot_root import chat_bot_router
-from chat_bot_api_server import api_router
+from chat_bot_root_api import api_router
 from auth import auth_router
 
 app = FastAPI(
