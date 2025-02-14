@@ -1,38 +1,46 @@
 import os
+import io
 import httpx
 import pandas as pd
+import re
 from fastapi import HTTPException
-from common.common_utils import to_dict_data, sort_value_use_key
-
-from langchain_core.prompts import ChatPromptTemplate
-
-from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_community.document_loaders import PyMuPDFLoader
-
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_community.retrievers import BM25Retriever
-from langchain.retrievers import EnsembleRetriever
-# from langchain_community.vectorstores import FAISS
-# from langchain_core.runnables import RunnablePassthrough, RunnableParallel
-from langchain.schema import StrOutputParser
-
-import os
-from tqdm import tqdm
+# from common.common_utils import to_dict_data, sort_value_use_key
 from dotenv import load_dotenv
 
-llm = ChatOllama(model="llama3.2-bllossom")
+from .objects import Query, ChatRequest, ChatResponse
 
-# TOY_API_SERVER = os.getenv("TOY_API_SERVER")
+session_state = []
 
-# async def device_count_day_util(date_from: str, date_to: str):
-#     try:
-#         async with httpx.AsyncClient() as client:
-#             response = await client.get(
-#                 TOY_API_SERVER + f"/DeviceCountDay?from={date_from}&to={date_to}"
-#             )
-#             data = response.json()
-#             df = pd.DataFrame(data)
-#             return df
-#     except HTTPException as e:
-#         print(e + " " + "device_count_day_util")
+
+# ============================================================================== # 
+# 이전 대화기록을 출력해 주는 코드
+
+def get_chat_history(session_id: str):
+    # 세션에 해당하는 대화 내역 반환
+    return session_state.get(session_id, [])
+
+def save_message(session_id: str, message: dict):
+    # 세션에 메시지 추가
+    if session_id not in session_state:
+        session_state[session_id] = []
+    session_state[session_id].append(message)
+
+
+
+# 사용자가 질문한 쿼리 전처리하는 코드
+
+async def text_cleansing(Query: str):
+    text = Query.replace('\xa0', ' ')
+    text = re.sub(r'\s+', ' ', text).strip()
+    if re.match(r'^[ㄱ-ㅎ]+$' or re.match(r'^[ㅏ-ㅣ]+$'), text):
+        return ''
+    
+    text = re.sub(r'[^가-힣a-zA-Z0-9\s]', '', text)
+    
+    return text
+
+# ============================================================================== # 
+# def normalize_string(s):
+#     """유니코드 정규화"""
+#     return unicodedata.normalize('NFC', s)
+# 

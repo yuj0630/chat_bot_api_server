@@ -22,3 +22,22 @@ import common
 #     createdAt = mapped_column(DateTime)
 #     updatedAt = mapped_column(DateTime)
 
+# # 유저 입력을 받을 모델 정의
+# class Query(common.database.Base):
+#     question = mapped_column(String(2000), nullable=True)
+
+
+# # 답변 request 모델 정의
+# class ChatRequest(common.database.Base):
+#     session_id = mapped_column(String(10), nullable=False)
+#     message = mapped_column(String(2000), nullable=True)
+
+
+# # 응답할 모델 정의
+# class ChatResponse(common.database.Base):
+#     session_id = mapped_column(String(10), nullable=False)
+#     bot_message = mapped_column(String(2000), nullable=True)
+
+    
+# class ClearChatRequest(common.database.Base):
+#     session_id = mapped_column(String(10), nullable=False)

@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from starlette.middleware.sessions import SessionMiddleware
 
 # 컨트롤 라우터 선언
 from chat_bot_root import chat_bot_router
@@ -12,6 +12,25 @@ app = FastAPI(
     title="Chat Bot Server",
     version="0.0.1",
 )
+
+# cors allow path
+origins = [
+    "http://localhost",
+    "http://localhost:3000",
+    "http://127.0.0.1",
+    "http://127.0.0.1:3000",
+]
+
+# cors settings
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.add_middleware(SessionMiddleware, secret_key="your_secret_key")
 
 # 기본 엔드포인트
 @app.get("/")
