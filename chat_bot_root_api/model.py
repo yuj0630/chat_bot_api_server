@@ -64,6 +64,7 @@ def setup_llm_pipeline():
         tokenizer=tokenizer,
         task="text-generation",
         temperature=0.2,
+        top_p=0.9,
         return_full_text=False,
         max_new_tokens=128,
     )

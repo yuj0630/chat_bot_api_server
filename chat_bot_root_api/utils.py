@@ -3,6 +3,7 @@ import re
 import httpx
 import pandas as pd
 from fastapi import HTTPException
+from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyMuPDFLoader
 import pdfplumber
 
@@ -62,3 +63,14 @@ def pretty_print_docs(docs):
     )
 
 # ============================================================================== # 
+
+# 파일 전처리 함수(한글 태아불 -> 마크다운)
+def convert_hwp_to_markdown(hwp_table_text: str):
+    soup = BeautifulSoup(hwp_table_text, 'html.parser')
+    table = soup.find('table')
+    df = pd.read_html(str(table))[0]
+    markdown_table = df.to_markdown(index=False)
+    return markdown_table
+    
+    
+    

@@ -9,16 +9,18 @@ class ExampleResponse(BaseModel):
 class Query(BaseModel):
     question: str
 
-
 # 답변 request 모델 정의
-class ChatRequest(BaseModel):
-    session_id: str
+class ChatBaseModel(BaseModel):
+    session_id: int
     message: str
 
+class ChatRequest(ChatBaseModel):
+    pass;
+
 # 응답할 모델 정의
-class ChatResponse(BaseModel):
-    session_id: str
-    bot_message: str
+class ChatResponse(ChatBaseModel):
+    pass;
     
 class ClearChatRequest(BaseModel):
-    session_id: str    
+    session_id: int    
+    

@@ -9,7 +9,8 @@ from .utils import preprocess_text
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_community.document_loaders import CSVLoader, TextLoader, PDFPlumberLoader, DataFrameLoader, DirectoryLoader
+from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, PDFPlumberLoader, DataFrameLoader, DirectoryLoader
+from langchain_community.document_loaders.csv_loader import UnstructuredCSVLoader
 from langchain_teddynote.document_loaders import HWPLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.runnables import RunnablePassthrough, RunnableParallel
@@ -19,6 +20,7 @@ from langchain.schema import StrOutputParser
 from langchain_community.vectorstores import Chroma, FAISS
 from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_community.retrievers import BM25Retriever 
+from langchain_teddynote.retrievers import KiwiBM25Retriever
 from langchain.retrievers import EnsembleRetriever, ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import CrossEncoderReranker
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
@@ -26,48 +28,55 @@ from langchain_community.document_transformers import LongContextReorder
 from sentence_transformers import CrossEncoder
 
 
-router = APIRouter(prefix="/api/chat_bot_root")
+router = APIRouter(prefix="/api/chat_bot_root") # APIRouter 변환
 
 model_name = "llama3.2-bllossom" 
+
+llm = ChatOllama(model=model_name) 
+
+print(f"사용되는 모델: {llm}")  # 모델 이름 출력
 
 # 입력된 PDF 없을 시 Llama 모델을 사용하여 기본적인 응답 생성하는 코드
 @router.get("/response_llama_data",  tags=["CHAT BOT API SERVER"])
 def response_llama_data(prompt : str):
-    # 모델 초기화
-    model = ChatOllama(model=model_name)
-
-    # System Prompt 적용 (위에서 설계한 버전)
-    system_prompt = """당신은 재난 안전관리 전문가로, 사용자의 질문에 대해 정확하고 공손하게 답변해야 합니다. 
-    PDF 및 TXT 데이터를 입력받으면 해당 데이터의 요약 또는 사용자가 원하는 정보를 제공합니다.
-
-    ### 🔹 **📌 핵심 원칙**
-    1. **재난 안전관리 관련 질문**: 
-       - 신뢰할 수 있는 정보를 바탕으로 재난 대응 및 예방 지침을 제공합니다.
-       - 체계적인 단계별 설명(CoT, Chain of Thought 방식)을 포함하여 논리적이고 명확한 답변을 생성합니다.
-    
-    2. **파일(PDF, TXT) 입력 시**:
-       - 사용자가 원하면 **파일 요약, 특정 내용 검색 및 정리**를 수행합니다.
-       - 문서 내용을 정확하게 분석하여 필요한 정보를 추출합니다.
-
-    3. **언어 정책**:
-       - 기본적으로 **모든 답변은 한국어**로 작성됩니다.
-       - 질문에 **한국어가 포함된 경우** 최대한 한국어로 답변합니다.
-       - 질문이 **한국어가 아닌 경우**, 해당 언어로 답변할 수 있습니다.
-
-    4. **답변 스타일**:
-       - **공손하고 정중한 어조**로 답변합니다.
-    """
-
-    # Ollama에서 요구하는 메시지 형식으로 변환
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt}
-    ]
-
     # 모델에 메시지 전달
     try:
-        response = model.invoke(messages)
-        return response  # 응답 반환
+        # System Prompt 적용 (위에서 설계한 버전)
+        system_prompt = """당신은 재난 안전관리 전문가로, 사용자의 질문에 대해 정확하고 공손하게 답변해야 합니다. 
+        PDF 및 TXT 데이터를 입력받으면 해당 데이터의 요약 또는 사용자가 원하는 정보를 제공합니다.
+
+        ### 🔹 **📌 핵심 원칙**
+        1. **재난 안전관리 관련 질문**: 
+            - 신뢰할 수 있는 정보를 바탕으로 재난 대응 및 예방 지침을 제공합니다.
+            - 체계적인 단계별 설명(CoT, Chain of Thought 방식)을 포함하여 논리적이고 명확한 답변을 생성합니다.
+    
+        2. **파일(PDF, TXT) 입력 시**:
+            - 사용자가 원하면 **파일 요약, 특정 내용 검색 및 정리**를 수행합니다.
+            - 문서 내용을 정확하게 분석하여 필요한 정보를 추출합니다.
+
+        3. **언어 정책**:
+            - 기본적으로 **모든 답변은 한국어**로 작성됩니다.
+            - 질문에 **한국어가 포함된 경우** 최대한 한국어로 답변합니다.
+            - 질문이 **한국어가 아닌 경우**, 해당 언어로 답변할 수 있습니다.
+
+        4. **답변 스타일**:
+            - **공손하고 정중한 어조**로 답변합니다.
+        """
+
+        # Ollama에서 요구하는 메시지 형식으로 변환
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        response = llm.invoke(messages)
+        
+        # ✅ AIMessage 객체에서 content(문자열) 값만 가져오기
+        answer_text = response.content if hasattr(response, 'content') else str(response)
+        
+        answer = {"answer" : answer_text} #JSON 형식으로 리턴
+        
+        return answer  # 응답 반환
+    
     except Exception as e:
         return f"오류 발생: {str(e)}"
         
@@ -78,9 +87,6 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int):
     """데이터 파일을 읽고, 벡터화하는 함수"""
     # 모델 초기화
     try:
-        # llm = setup_llm_pipeline()  # model에서 transformer 적용(GPU memory out)
-        llm = ChatOllama(model=model_name) # 기본 ChatOllama
-
         # 모델 이름 로깅
         print(f"사용되는 모델: {llm}")  # 모델 이름 출력
         
@@ -96,14 +102,16 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int):
             loader = PDFPlumberLoader(target_path)
             pages = loader.load()
             
-        elif file_type == "xlsx" or file_type == 'xls':
+        elif file_type == "xlsx" or file_type == 'xls': 
             df = pd.read_excel(target_path)
-            
-            loader = DataFrameLoader(df, page_content_column='actRmks') # 여기 주기적으로 바꿔줘야 함
+            df = df.dropna(subset=["answer"])
+            loader = DataFrameLoader(df, page_content_column="answer") # 여기 주기적으로 바꿔줘야 함
             pages = loader.load()
             
         elif file_type == "csv":
-            loader = CSVLoader(target_path, encoding='utf-8')
+            df = pd.read_csv(target_path, encoding="EUC-KR")  # 인코딩 명확히 지정
+            df = df.dropna(subset=["긴급구조분류명"]) 
+            loader = DataFrameLoader(df, page_content_column="긴급구조분류명")
             pages = loader.load()
             
         elif file_type == 'hwp': #hwp5txt
@@ -147,6 +155,7 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int):
             vector_store.add_documents([chunk])
         
         print(type(vector_store))
+        # 이제 벡터스토어 중 chroma, FAISS, bm25, finecone(유료), pgvector 중 하나 선택
         
         # # Retriever 설정(chroma, FAISS, bm25)
         # chroma_retriever = vector_store.as_retriever(
@@ -190,16 +199,19 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int):
             [
                 # System Prompt 적용 (위에서 설계한 버전)
                 ("system", """당신은 재난관리 전문가로, 사용자의 질문에 대해 정확하고 공손하게 답변해야 합니다. 
-                PDF 및 TXT 데이터를 입력받으면 해당 데이터의 요약 또는 사용자가 원하는 정보를 제공합니다.
-                데이터의 내용은 2000바이트를 넘지 않으며, 간략하게 설명해주세요.
+                파일 데이터를 입력받고 해당 데이터의 질문에 맞게 사용자가 원하는 정보를 제공합니다.
+                데이터의 내용은 간략하게 설명해야 합니다.
+                
                 ### 🔹 **📌 핵심 원칙**
+                
                 1. **재난안전 관련 질문**: 
                     - 입력받은 데이터 내에 있는 정보를 바탕으로 고객이 원하는 정보의 답을 생성합니다. 
                     - 체계적인 단계별 설명(CoT, Chain of Thought 방식)을 포함하여 논리적이고 명확한 답변을 생성합니다.
                     
-                2. **파일(PDF, TXT) 입력 시**:
-                    - 사용자가 원하면 **파일 요약, 특정 내용 검색 및 정리**를 수행합니다.
-                    - 문서 내용을 정확하게 분석하여 필요한 정보를 추출합니다.
+                2. **파일 입력 시**:
+                    - 문서 내용을 분석한 후 질문의 내용에 기반하여 필요한 정보를 추출합니다.
+                    - 사용자가 질문에 요약 및 검색을 원하면 **파일 요약, 특정 내용 검색 및 정리**를 수행합니다.
+                    - 동일한 내용을 반복하지 않습니다.
                     
                 3. **언어 정책**:
                     - 기본적으로 **모든 답변은 한국어**로 작성됩니다.
@@ -208,6 +220,7 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int):
                 
                 4. **답변 스타일**:
                     - **공손하고 정중한 어조**로 답변합니다.
+                    - 마지막에 **추가 질문**을 요구합니다.
                 """),
                 ("human", "질문: {question}")
             ]
@@ -216,15 +229,22 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int):
         # Chain 생성
         chain = ensemble_retriever | prompt | llm | StrOutputParser() 
         
-        response = chain.invoke("그렇다면 해당 데이터셋의 구성과 어노테이션 포맷이 어떻게 되어있는지 알려줘.") 
+        response = chain.invoke("낙뢰가 일어난 뒤에 정전이 일어나면 어떻게 해야 할까?") 
         
         print(response)
         
         answer = {"answer" : response} #JSON 형식으로 리턴
         
         return answer  # 생성된 QA 체인 반환
-
+    
     except Exception as e:
         print(f"오류가 발생했습니다: {str(e)}")
         raise
-     
+
+# ========================================================================= # 
+# AGENTIC RAG 설정하는 코드
+
+# @router.get("/response_agent",  tags=["CHAT BOT API SERVER"])
+# def response_agent(prompt : str):
+#     """주제별 agent 템플릿 설정하는 함수"""
+    
