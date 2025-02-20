@@ -1,3 +1,4 @@
+# transformer 사용하는 구간입니다.
 # 필요한 라이브러리 import
 from langchain_community.llms import huggingface_pipeline
 import torch

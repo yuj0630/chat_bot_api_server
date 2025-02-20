@@ -1,7 +1,7 @@
 FROM C:\gasi\chatbot\hf.co/Bllossom/llama-3.2-Korean-Bllossom-3B-gguf-Q4_K_M:latest
 
-PARAMETER temperature 0.6
-PARAMETER top_p 0.9
+PARAMETER temperature 0.5
+PARAMETER top_p 0.5
 
 TEMPLATE """<|start_header_id|>system<|end_header_id|>
 

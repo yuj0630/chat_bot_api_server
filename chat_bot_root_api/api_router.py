@@ -1,16 +1,16 @@
 import os
 from tqdm import tqdm
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 import pandas as pd
+import logging
 from .model import setup_llm_pipeline
-from .utils import preprocess_text
+from .utils import preprocess_text, load_file
 
 # langchain 모듈
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, PDFPlumberLoader, DataFrameLoader, DirectoryLoader
-from langchain_community.document_loaders.csv_loader import UnstructuredCSVLoader
+from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, PDFPlumberLoader, DataFrameLoader, DirectoryLoader, TextLoader
 from langchain_teddynote.document_loaders import HWPLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.runnables import RunnablePassthrough, RunnableParallel
@@ -27,13 +27,22 @@ from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from langchain_community.document_transformers import LongContextReorder
 from sentence_transformers import CrossEncoder
 
+# 에이전트
+from langchain.tools.retriever import create_retriever_tool
+from langchain.agents import create_react_agent, create_json_chat_agent
+from langchain.agents import AgentExecutor
+from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+
+# 로깅 설정
+logging.basicConfig(level=logging.INFO)
 
 router = APIRouter(prefix="/api/chat_bot_root") # APIRouter 변환
 
+upload_files = {}
 model_name = "llama3.2-bllossom" 
 
 llm = ChatOllama(model=model_name) 
-
 print(f"사용되는 모델: {llm}")  # 모델 이름 출력
 
 # 입력된 PDF 없을 시 Llama 모델을 사용하여 기본적인 응답 생성하는 코드
@@ -83,19 +92,24 @@ def response_llama_data(prompt : str):
 # ========================================================================= # 
 # 입력된 데이터 있을 시 해당 데이터 읽고 학습하는 코드     
 @router.get("/response_read_data",  tags=["CHAT BOT API SERVER"]) 
-def response_read_data(file_path: str, filename: str, min_chunk_size : int):
+def response_read_data(session_id : int, file_path: str, filename: str, min_chunk_size : int):
     """데이터 파일을 읽고, 벡터화하는 함수"""
     # 모델 초기화
     try:
-        # 모델 이름 로깅
-        print(f"사용되는 모델: {llm}")  # 모델 이름 출력
+        # # 세션에서 파일 정보 읽기
+        # file_info = upload_files.get(session_id)
+        # if not file_info:
+        #     raise HTTPException(status_code=400, detail="파일 정보가 존재하지 않습니다.")
+        
+        # # 파일 경로와 이름
+        # file_path = file_info["file_path"]
+        # filename = file_info["filename"]
         
         file_type = filename.split('.')[-1].lower()
-        print(file_type)
-        
         target_path = f'./templates/{file_path}/{filename}'
         
-        print(target_path)
+        # 함수화 중
+        # load_file(file_path, filename)
         
         # 자료형별로 파일 로드
         if file_type == "pdf":
@@ -118,45 +132,30 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int):
             loader = HWPLoader(target_path)
             pages = loader.load()
             
-            # pages가 리스트 형태라면 개별 요소를 합쳐서 문자열로 변환
-            text = "\n".join(page.page_content for page in pages)
-            
-            # 전처리 적용
-            preprocess_text_origin = preprocess_text(text)
-            print('=====================')
-            print(preprocess_text_origin)
-            
         #  format_doc(pages)
         print(pages)
             
         if not pages:
             raise ValueError("파일에서 텍스트를 추출할 수 없습니다.")
         
-        # 텍스트 분할
+        # 텍스트 분할 및 청킹
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-
-        # 텍스트 청킹
         text_chunks = text_splitter.split_documents(pages)
-        
         
         # 3. 최소 크기 필터링
         filter_text_chunks = [
             doc for doc in text_chunks if len(doc.page_content.strip()) >= int(min_chunk_size)
         ]
         
-        
         # Embedding과 Vector Store 설정
         embeddings = OllamaEmbeddings(model=model_name)  # 사용하려는 Embedding 모델
-        
         vector_store = Chroma.from_documents(filter_text_chunks, embeddings)
         
         for i, chunk in tqdm(enumerate(filter_text_chunks), total=len(filter_text_chunks), desc="Vectorizing documents"):
             # 각 텍스트 덩어리를 벡터화하여 저장
             vector_store.add_documents([chunk])
         
-        print(type(vector_store))
         # 이제 벡터스토어 중 chroma, FAISS, bm25, finecone(유료), pgvector 중 하나 선택
-        
         # # Retriever 설정(chroma, FAISS, bm25)
         # chroma_retriever = vector_store.as_retriever(
         #     search_type="similarity",
@@ -186,13 +185,10 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int):
         # compression_retriever = ContextualCompressionRetriever(
         #     base_compressor=compressor, base_retriever=ensemble_retriever)
         
-        
         # Retriever 타입 확인
-        # print(f"Chroma Retriever 타입: {type(chroma_retriever)}")
         print(f"FAISS Retriever 타입: {type(faiss_retriever)}")
         print(f"BM25Retriver 타입: {type(bm25_retriever)}")
         print(f"Ensemble Retriever 타입: {type(ensemble_retriever)}")
-        # print(f"compression Retriever 타입: {type(compression_retriever)}")
         
         # 템플릿 설정
         prompt = ChatPromptTemplate.from_messages(
@@ -230,11 +226,9 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int):
         chain = ensemble_retriever | prompt | llm | StrOutputParser() 
         
         response = chain.invoke("낙뢰가 일어난 뒤에 정전이 일어나면 어떻게 해야 할까?") 
-        
         print(response)
         
-        answer = {"answer" : response} #JSON 형식으로 리턴
-        
+        answer = {"answer" : response} # JSON 형식으로 리턴
         return answer  # 생성된 QA 체인 반환
     
     except Exception as e:
@@ -242,9 +236,83 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int):
         raise
 
 # ========================================================================= # 
-# AGENTIC RAG 설정하는 코드
+# AGENTIC RAG 설정하는 코드(ex.강진)
 
-# @router.get("/response_agent",  tags=["CHAT BOT API SERVER"])
-# def response_agent(prompt : str):
-#     """주제별 agent 템플릿 설정하는 함수"""
+@router.get("/response_agent",  tags=["CHAT BOT API SERVER"])
+def response_agent(session_id: int, prompt : str):
+    """주제별 agent 템플릿 설정하는 함수"""
     
+    ### PDF 문서 검색 도구 (Retriever) ###
+    # 여기서 질문에 맞는 데이터를 다운로드하며, DB가 될 수도 있습니다.
+    loader = TextLoader(prompt)
+
+    # 텍스트 분할기를 사용하여 문서를 분할합니다.
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+
+    # 문서를 로드하고 분할합니다.
+    split_docs = loader.load_and_split(text_splitter)
+
+    # VectorStore를 생성합니다.
+    vector = FAISS.from_documents(split_docs, OllamaEmbeddings())
+
+    # Retriever를 생성합니다.
+    retriever = vector.as_retriever()
+    
+    
+    # 검색기 및 tool 다양화입니다. 실전에서는 집 내용, 집 가격, 강진 내 정보 등 특정 분야에서 다양화할거예요.
+    retriever_tool = create_retriever_tool(
+    retriever,
+    "db_search",
+    "DB에서 찾은 정보들입니다. DB 내 정보를 찾고 싶을 때 해당 검색기를 주로 이용하세요!",
+    )
+    
+    retriever_tool2 = create_retriever_tool(
+    retriever,
+    "web_search",
+    "웹 검색을 통해 찾은 정보들입니다. 웹사이트 내 정보를 찾고 싶을 때 해당 검색기를 주로 이용하세요!",
+    )
+    
+    retriever_tool3 = create_retriever_tool(
+    retriever,
+    "RAG_search",
+    "RAG 검색을 통해 찾은 정보들입니다. RAG 데이터 내 정보를 찾고 싶을 때 해당 검색기를 주로 이용하세요!",
+    )
+
+    # 해당 agent 뒤 쪽에 json_prompt일 시 react -> json_chat으로 변경
+    agent = create_react_agent(llm, retriever_tool)
+    agent2 = create_react_agent(llm, retriever_tool2)
+    agent3 = create_react_agent(llm, retriever_tool3)
+    
+    # agent_executor의 경우 tool 및 agent를 List화 하여 상황에 맞는 retriever를 사용합니다.
+    agent_executor = AgentExecutor(
+        agent=agent,  # agent 선택
+        tools=retriever_tool, # 검색기 툴 선택
+        verbose=True, # 언어 여부
+        handle_parsing_errors=True, # parser 에러시 임의 복구
+        return_intermediate_steps=True, # 중간과정
+    )
+    
+    # 채팅 메시지 기록이 추가된 에이전트를 생성합니다.
+    agent_with_chat_history = RunnableWithMessageHistory(
+        agent_executor,
+        # 대부분의 실제 시나리오에서 세션 ID가 필요하기 때문에 이것이 필요합니다
+        # 여기서는 간단한 메모리 내 ChatMessageHistory를 사용하기 때문에 실제로 사용되지 않습니다
+        lambda session_id: session_id,
+        # 프롬프트의 질문이 입력되는 key: "input"
+        input_messages_key="input",
+        # 프롬프트의 메시지가 입력되는 key: "chat_history"
+        history_messages_key="chat_history",
+        )
+    
+    # 질의에 대한 답변을 출력합니다.
+    response = agent_with_chat_history.invoke(
+        {
+            "input": "강진 빈집에 대한 질문 내용을 DB 내 정보에서 알려줘"
+        },
+        # 세션 ID를 설정합니다.
+        config={"configurable": {"session_id": session_id}},
+    )
+    print(f"답변: {response['output']}")
+
+# 해당 부분은 agent 실험용으로, 실전에선 안 쓰는 코드예요.
+# ========================================================================= # 

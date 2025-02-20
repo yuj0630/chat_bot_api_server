@@ -14,7 +14,6 @@ import common
 from chat_bot_root_api import response_read_data, response_llama_data
 from .utils import get_upload_dir
 from .objects import Query, ExampleResponse, ChatRequest, ChatResponse, ClearChatRequest
-from langchain.callbacks.base import BaseCallbackHandler
 
 
 router = APIRouter(prefix="/api/chat_bot_root")
@@ -24,15 +23,6 @@ upload_files = {}
 
 # UPLOAD_DIR = "./uploads"
 # os.makedirs(UPLOAD_DIR, exist_ok=True)  # 폴더가 없으면 생성
-
-class StreamHandler(BaseCallbackHandler):
-    def __init__(self):
-        self.text = ""
-
-    def on_llm_new_token(self, token: str, **kwargs) -> None:
-        self.text += token
-        print(self.text, end="", flush=True)  # 콘솔에서 실시간으로 출력
-
         
 @router.get("/activate_test", tags=["CHAT BOT ROOT"])
 async def activate_test():
@@ -63,7 +53,8 @@ async def reset_session(request: Request):
     return '', 204
 # ============================================================================== # 
 
-# 📌 chat으로 사용자 메세지 받고 학습하는 함수로 넘어가기
+# 📌 chat으로 사용자 메세지 받고 답변 스트림 형식으로 하기
+
 @router.post("/chat", response_model=ChatResponse, tags=["CHAT BOT ROOT"])
 async def chat_request(chat: ChatRequest):
     """ 사용자의 메시지를 저장하고 학습 """
@@ -82,41 +73,30 @@ async def chat_request(chat: ChatRequest):
             )
     else:
         response_data = response_llama_data(prompt=chat.message)
-
+        
+    print(response_data) 
+    # 스트리밍 X   
     return ChatResponse(session_id=chat.session_id, message=response_data["answer"])
     
-# 📌 answer에서 나온 답변 가져오기.
-@router.get("/answer", response_model=ChatResponse, tags=["CHAT BOT ROOT"])
-async def chat_response(chat: ChatRequest):
-    """ 챗봇 응답을 반환하는 API """
-    async def generate_response():
-        """ 데이터를 스트리밍으로 순차적으로 전송 """
-        if chat.session_id in upload_files:
-            file_info = upload_files[chat.session_id]
-            response_data = response_read_data(
-                file_path=file_info["file_path"], 
-                filename=file_info["filename"], 
-                min_chunk_size=0
-            )
-        else:
-            response_data = response_llama_data(prompt=chat.message)
+# # 📌 answer에서 나온 답변 가져오기.
+# @router.get("/answer", response_model=ChatResponse, tags=["CHAT BOT ROOT"])
+# async def chat_response(chat: ChatRequest):
+#     """ 데이터를 스트리밍으로 순차적으로 전송 """
+#     handler = StreamHandler()
+    
+#     if chat.session_id in upload_files:
+#         file_info = upload_files[chat.session_id]
+#         response_data = response_read_data(
+#             file_path=file_info["file_path"], 
+#             filename=file_info["filename"], 
+#             min_chunk_size=0
+#         )
+#     else:
+#         response_data = response_llama_data(prompt=chat.message, callbacks=[handler])
             
-        # 응답이 JSON 형태인지 확인
-        if isinstance(response_data, dict) and "answer" in response_data:
-            message = response_data["answer"]
-            
-            json_start = '{"answer": "'
-            json_end = '"}'
+#     handler.mark_done()
 
-            yield json_start  # JSON 시작
-            for char in message:
-                yield char  # 한 글자씩 전송
-                await asyncio.sleep(0.05)  # 50ms 딜레이 (자연스럽게)
-            yield json_end  # JSON 닫기
-        else:
-            yield json.dumps({"answer": "Invalid response format from chatbot"})
-
-    return ChatResponse(generate_response(), media_type='application/json')
+#     return StreamingResponse(handler.stream_tokens(), media_type='text/plain')
 # ============================================================================== # 
 
 @router.post("/upload", tags=["CHAT BOT ROOT"])
@@ -162,5 +142,6 @@ async def get_example_questions():
     return ExampleResponse(questions=example_questions)    
 
 # ============================================================================== # 
+
 # 채팅 기록 표시
 
