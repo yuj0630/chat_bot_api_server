@@ -4,7 +4,8 @@ from fastapi import APIRouter, HTTPException
 import pandas as pd
 import logging
 from .model import setup_llm_pipeline
-from .utils import preprocess_text, load_file
+from .utils import load_file
+from transformers import pipeline
 
 # langchain 모듈
 from langchain_core.callbacks.base import BaseCallbackHandler
@@ -42,7 +43,10 @@ router = APIRouter(prefix="/api/chat_bot_root") # APIRouter 변환
 upload_files = {}
 model_name = "llama3.2-bllossom" 
 
-llm = ChatOllama(model=model_name) 
+
+llm = setup_llm_pipeline()
+
+# llm = ChatOllama(model=model_name) 
 print(f"사용되는 모델: {llm}")  # 모델 이름 출력
 
 # 입력된 PDF 없을 시 Llama 모델을 사용하여 기본적인 응답 생성하는 코드
@@ -73,16 +77,24 @@ def response_llama_data(prompt : str):
         """
 
         # Ollama에서 요구하는 메시지 형식으로 변환
+        # messages = [
+        #     {"role": "system", "content": system_prompt},
+        #     {"role": "user", "content": prompt}
+        # ]
+        
+        # 응답 처리 (텍스트 추출)
+        # answer_text = response[0]['generated_text'] if isinstance(response, list) else str(response)
+        
         messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ]
-        response = llm.invoke(messages)
+            {"role": "user", "content": "Who are you?"},
+            ]
+        pipe = pipeline("text-generation", model="deepseek-ai/DeepSeek-R1", trust_remote_code=True)
+        pipe(messages)
         
-        # ✅ AIMessage 객체에서 content(문자열) 값만 가져오기
-        answer_text = response.content if hasattr(response, 'content') else str(response)
         
-        answer = {"answer" : answer_text} #JSON 형식으로 리턴
+        
+        answer = {"answer" : messages} #JSON 형식으로 리턴
+        print(answer)
         
         return answer  # 응답 반환
     

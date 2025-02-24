@@ -2,6 +2,7 @@ import os
 import shutil
 import json
 import asyncio
+import logging
 
 import pandas as pd
 import numpy as np
@@ -15,6 +16,8 @@ from chat_bot_root_api import response_read_data, response_llama_data
 from .utils import get_upload_dir
 from .objects import Query, ExampleResponse, ChatRequest, ChatResponse, ClearChatRequest
 
+# 로깅 설정
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat_bot_root")
 
@@ -26,11 +29,12 @@ upload_files = {}
         
 @router.get("/activate_test", tags=["CHAT BOT ROOT"])
 async def activate_test():
+    """서버 활성화 테스트 엔드포인트"""
     try:
-        return "hello world"
+        return {"status": "active", "message": "Chat bot service is running"}
     except Exception as e:
-        print(e)
-
+        logger.error(f"Activation test failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Server error during activation test")
 # ============================================================================== # 
 # 세션관리 (임시로 starlette middleware 사용)        
     

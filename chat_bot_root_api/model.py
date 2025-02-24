@@ -2,22 +2,22 @@
 # 필요한 라이브러리 import
 from langchain_community.llms import huggingface_pipeline
 import torch
+from accelerate import Accelerator
 
 # 추가적인 transformers 라이브러리 import (이미 일부는 위에서 import됨)
 from transformers import (
-    AutoModelForCausalLM,
+    AutoModelForCausalLM, # Google의 Gemma 2B 모델 (여기서는 사용되지 않음)
     AutoTokenizer,
     BitsAndBytesConfig,
     HfArgumentParser,
     TrainingArguments,
     pipeline,
-    logging,
-    AutoModelForCausalLM  # Google의 Gemma 2B 모델 (여기서는 사용되지 않음)
+    logging
 )
 
 # 사용할 모델 ID 설정 (Beomi의 한국어-영어 지원 LLaMA-3 모델, 8B 파라미터 크기)
 # model_id = "beomi/llama-3-Open-Ko-8B"
-model_id = "beomi/gemma-ko-2b"
+model_id = "Bllossom/llama-3.2-Korean-Bllossom-3B" # Google의 Gemma 2B 모델
 
 # 모델 실행 시 사용할 옵션 설정 (현재 CPU에서 실행하도록 설정됨)
 model_kwargs = {'device': 'cuda'}
@@ -27,6 +27,8 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)  # 지정한 모델에서 �
 tokenizer.use_default_system_prompt = False
 
 def setup_llm_pipeline():
+    
+    accelerator = Accelerator()
     
     # CPU 환경에서는 양자화 옵션 제거
     if torch.cuda.is_available():
@@ -42,32 +44,33 @@ def setup_llm_pipeline():
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
             quantization_config=bnb_config,
-            device_map={"": "cuda"},
+            device_map="auto", 
+            offload_folder="./offload",  # 모델을 오프로드할 디스크 경로 설정
             trust_remote_code=True
         )
         
         # 모델을 명시적으로 GPU로 이동
-        model = model.to('cuda')  # 명시적으로 GPU에 모델을 할당
+        # model = model.to('cuda')  # 명시적으로 GPU에 모델을 할당
         
     # CPU 환경에서는 양자화 없이 모델 로드  
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
-            device_map={"cpu" : "cpu"},
+            device_map="auto", 
+            offload_folder="./offload",  # 모델을 오프로드할 디스크 경로 설정
             trust_remote_code=True
         )
-        # 모델을 명시적으로 CPU로 이동
-        model = model.to('cpu') 
     
     # HuggingFacePipeline 객체 생성
     text_generation_pipeline = pipeline(
         model=model,
         tokenizer=tokenizer,
         task="text-generation",
-        temperature=0.2,
-        top_p=0.9,
+        do_sample=True,
+        temperature=0.5,
+        top_p=0.5,
         return_full_text=False,
-        max_new_tokens=128,
+        max_new_tokens=128
     )
     
     llm = text_generation_pipeline

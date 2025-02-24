@@ -7,7 +7,6 @@ import pdfplumber
 from langchain_ollama import ChatOllama
 from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, PDFPlumberLoader, DataFrameLoader, DirectoryLoader, TextLoader
 from langchain_teddynote.document_loaders import HWPLoader
-
 # 전역 함수
 
 
@@ -44,7 +43,6 @@ def load_file(file_path: str, filename: str):
     else:
         raise ValueError(f"지원되지 않는 파일 형식: {file_type}")
     
-    
     print(pages)
     return pages
 
@@ -75,30 +73,6 @@ def convert_hwp_to_markdown(hwp_table_text: str):
     markdown_table = df.to_markdown(index=False)
     return markdown_table
 
-# 한글 전처리 테스트
-def preprocess_text(text: str) -> str:
-    lines = []
-    for line in text.split("\n"):
-        line = line.strip()
-
-        # 제목 처리
-        if "매뉴얼" in line or "지침" in line:
-            lines.append(f"# {line}")
-
-        # 리스트 항목 처리 (기호: ●, ○, -, o, ▶)
-        elif line.startswith(("●", "○", "-", "o", "▶")):
-            lines.append(f"- {line[1:].strip()}")
-
-        # 숫자 리스트 처리 (1. 2. 3. / 1) 2) 3) / ① ② ③)
-        elif re.match(r"^\d+\.\s*", line) or re.match(r"^\d+\)\s*", line) or re.match(r"^[①②③④⑤⑥⑦⑧⑨⑩]\s*", line):
-            lines.append(f"- {re.sub(r'^\d+[.)]?\s*|^[①②③④⑤⑥⑦⑧⑨⑩]\s*', '', line).strip()}")
-
-        # 일반 텍스트
-        elif line:
-            lines.append(line)
-
-    return "\n".join(lines)
-    
 # ====================       성능 향상 부분       ======================== # 
 
 # # 벡터화 처리 배치화(데이터 다운로드 batch해서 빠르게 해줌)
