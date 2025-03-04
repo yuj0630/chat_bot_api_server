@@ -78,7 +78,7 @@ async def chat_request(chat: ChatRequest):
     else:
         response_data = response_llama_data(prompt=chat.message)
         
-    print(response_data) 
+    print(type(response_data), response_data) 
     # 스트리밍 X   
     return ChatResponse(session_id=chat.session_id, message=response_data["answer"])
     

@@ -124,7 +124,7 @@ class EnhancedRAGToolFactory:
         self.callback_manager = callback_manager or CallbackManager([])
         
     def create_tools(self, retriever, include_web_search=True, 
-                   include_structured_data=True):
+                include_structured_data=True):
         """확장 가능한 도구 세트 생성"""
         tools = [
             create_retriever_tool(

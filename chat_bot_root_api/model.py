@@ -2,7 +2,6 @@
 # 필요한 라이브러리 import
 from langchain_community.llms import huggingface_pipeline
 import torch
-from accelerate import Accelerator
 
 # 추가적인 transformers 라이브러리 import (이미 일부는 위에서 import됨)
 from transformers import (
@@ -17,18 +16,42 @@ from transformers import (
 
 # 사용할 모델 ID 설정 (Beomi의 한국어-영어 지원 LLaMA-3 모델, 8B 파라미터 크기)
 # model_id = "beomi/llama-3-Open-Ko-8B"
-model_id = "Bllossom/llama-3.2-Korean-Bllossom-3B" # Google의 Gemma 2B 모델
+model_id = "BAAI/bge-reranker-v2-m3" # bge-reranker 버전
 
 # 모델 실행 시 사용할 옵션 설정 (현재 CPU에서 실행하도록 설정됨)
 model_kwargs = {'device': 'cuda'}
 
 # 토크나이저 로드 (문장을 토큰으로 변환하는 역할)
 tokenizer = AutoTokenizer.from_pretrained(model_id)  # 지정한 모델에서 토크나이저 로드
-tokenizer.use_default_system_prompt = False
+
+# 기존 시스템 프롬프트를 포함한 chat_template 설정
+tokenizer.chat_template = """<|system|>
+당신은 재난 안전관리 전문가로, 사용자의 질문에 대해 정확하고 공손하게 답변해야 합니다. 
+PDF 및 TXT 데이터를 입력받으면 해당 데이터의 요약 또는 사용자가 원하는 정보를 제공합니다.
+
+### 🔹 **📌 핵심 원칙**
+1. **재난 안전관리 관련 질문**: 
+    - 신뢰할 수 있는 정보를 바탕으로 재난 대응 및 예방 지침을 제공합니다.
+    - 체계적인 단계별 설명(CoT, Chain of Thought 방식)을 포함하여 논리적이고 명확한 답변을 생성합니다.
+
+2. **파일(PDF, TXT) 입력 시**:
+    - 사용자가 원하면 **파일 요약, 특정 내용 검색 및 정리**를 수행합니다.
+    - 문서 내용을 정확하게 분석하여 필요한 정보를 추출합니다.
+
+3. **언어 정책**:
+    - 기본적으로 **모든 답변은 한국어**로 작성됩니다.
+    - 질문에 **한국어가 포함된 경우** 최대한 한국어로 답변합니다.
+    - 질문이 **한국어가 아닌 경우**, 해당 언어로 답변할 수 있습니다.
+
+4. **답변 스타일**:
+    - **공손하고 정중한 어조**로 답변합니다.
+<|end|>
+
+<|user|>{user_input}<|end|>
+<|assistant|>"""
+
 
 def setup_llm_pipeline():
-    
-    accelerator = Accelerator()
     
     # CPU 환경에서는 양자화 옵션 제거
     if torch.cuda.is_available():

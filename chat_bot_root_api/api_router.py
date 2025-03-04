@@ -88,7 +88,8 @@ def response_llama_data(prompt : str):
         messages = [
             {"role": "user", "content": "Who are you?"},
             ]
-        pipe = pipeline("text-generation", model="deepseek-ai/DeepSeek-R1", trust_remote_code=True)
+        
+        pipe = pipeline("text-generation", model="BAAI/bge-reranker-v2-m3", trust_remote_code=True)
         pipe(messages)
         
         

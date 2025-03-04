@@ -3,9 +3,9 @@ import pandas as pd
 from tqdm import tqdm
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyMuPDFLoader
-import pdfplumber
+import pypdfium2
 from langchain_ollama import ChatOllama
-from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, PDFPlumberLoader, DataFrameLoader, DirectoryLoader, TextLoader
+from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, PyPDFium2Loader, DataFrameLoader, DirectoryLoader, TextLoader
 from langchain_teddynote.document_loaders import HWPLoader
 # 전역 함수
 
@@ -17,7 +17,7 @@ def load_file(file_path: str, filename: str):
     file_type = filename.split('.')[-1].lower()
 
     if file_type == "pdf":
-        loader = PDFPlumberLoader(file_path)
+        loader = PyPDFium2Loader(file_path)
         pages = loader.load()
         
     elif file_type == "xlsx" or file_type == 'xls': 
