@@ -1,4 +1,6 @@
 import os
+import io
+import base64
 from tqdm import tqdm
 from fastapi import APIRouter, HTTPException
 import pandas as pd
@@ -6,6 +8,7 @@ import logging
 from .model import setup_llm_pipeline
 from .utils import load_file
 from transformers import pipeline
+import matplotlib.pyplot as plt
 
 # langchain 모듈
 from langchain_core.callbacks.base import BaseCallbackHandler
@@ -38,66 +41,53 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 
-router = APIRouter(prefix="/api/chat_bot_root") # APIRouter 변환
+router = APIRouter(prefix="/gangjin") # APIRouter 변환
 
 upload_files = {}
 model_name = "llama3.2-bllossom" 
 
 
-llm = setup_llm_pipeline()
+# llm = setup_llm_pipeline()
 
-# llm = ChatOllama(model=model_name) 
+llm = ChatOllama(model=model_name) 
 print(f"사용되는 모델: {llm}")  # 모델 이름 출력
 
-# 입력된 PDF 없을 시 Llama 모델을 사용하여 기본적인 응답 생성하는 코드
-@router.get("/response_llama_data",  tags=["CHAT BOT API SERVER"])
+@router.get("/response_llama_data",  tags=["CHAT BOT API SERVER"]) 
 def response_llama_data(prompt : str):
     # 모델에 메시지 전달
     try:
         # System Prompt 적용 (위에서 설계한 버전)
-        system_prompt = """당신은 재난 안전관리 전문가로, 사용자의 질문에 대해 정확하고 공손하게 답변해야 합니다. 
-        PDF 및 TXT 데이터를 입력받으면 해당 데이터의 요약 또는 사용자가 원하는 정보를 제공합니다.
+        system_prompt = "system", """당신은 강진에서 제공하는 챗봇 안내원으로, 사용자의 질문에 대해 정확하고 공손하게 답변해야 합니다. 
+                파일 데이터가 있으면 해당 데이터를 정확히 읽고 필요한 정보를 간략하게 제공해야 합니다.
 
-        ### 🔹 **📌 핵심 원칙**
-        1. **재난 안전관리 관련 질문**: 
-            - 신뢰할 수 있는 정보를 바탕으로 재난 대응 및 예방 지침을 제공합니다.
-            - 체계적인 단계별 설명(CoT, Chain of Thought 방식)을 포함하여 논리적이고 명확한 답변을 생성합니다.
-    
-        2. **파일(PDF, TXT) 입력 시**:
-            - 사용자가 원하면 **파일 요약, 특정 내용 검색 및 정리**를 수행합니다.
-            - 문서 내용을 정확하게 분석하여 필요한 정보를 추출합니다.
-
-        3. **언어 정책**:
-            - 기본적으로 **모든 답변은 한국어**로 작성됩니다.
-            - 질문에 **한국어가 포함된 경우** 최대한 한국어로 답변합니다.
-            - 질문이 **한국어가 아닌 경우**, 해당 언어로 답변할 수 있습니다.
-
-        4. **답변 스타일**:
-            - **공손하고 정중한 어조**로 답변합니다.
-        """
+                ### 🔹 **📌 핵심 원칙**
+                1. **답변 시 유의 사항**: 
+                    - 입력받은 데이터 내에 있는 정보를 바탕으로 고객이 질문하는 정보의 답을 생성합니다.
+                    - 추가 정보가 필요할 시 해당 정보를 다시 물어봐야 합니다.
+            
+                2. **언어 정책**:
+                    - 기본적으로 **모든 답변은 한국어**로 작성됩니다.
+                    - 질문에 **한국어가 포함된 경우** 최대한 한국어로 답변합니다.
+                    - 질문이 **한국어가 아닌 경우**, 해당 언어로 답변할 수 있습니다.
+                
+                3. **답변 스타일**:
+                    - 답변의 끝에는 추가로 필요한 정보를 제공할 수 있도록 **친절한 안내 문구**를 포함합니다.
+                    - **중복을 피하고, 핵심 정보만 간결하고 정확하게 제공**합니다.
+                """
 
         # Ollama에서 요구하는 메시지 형식으로 변환
-        # messages = [
-        #     {"role": "system", "content": system_prompt},
-        #     {"role": "user", "content": prompt}
-        # ]
-        
-        # 응답 처리 (텍스트 추출)
-        # answer_text = response[0]['generated_text'] if isinstance(response, list) else str(response)
-        
         messages = [
-            {"role": "user", "content": "Who are you?"},
-            ]
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+        response = llm.invoke(messages)
         
-        pipe = pipeline("text-generation", model="BAAI/bge-reranker-v2-m3", trust_remote_code=True)
-        pipe(messages)
+        # ✅ AIMessage 객체에서 content(문자열) 값만 가져오기
+        answer_text = response.content if hasattr(response, 'content') else str(response)
+        response_data = {"answer" : answer_text} #JSON 형식으로 리턴
         
-        
-        
-        answer = {"answer" : messages} #JSON 형식으로 리턴
-        print(answer)
-        
-        return answer  # 응답 반환
+        # 이제 response_data["answer"]를 사용할 수 있습니다
+        return {"message": response_data["answer"]}
     
     except Exception as e:
         return f"오류 발생: {str(e)}"
@@ -105,21 +95,16 @@ def response_llama_data(prompt : str):
 # ========================================================================= # 
 # 입력된 데이터 있을 시 해당 데이터 읽고 학습하는 코드     
 @router.get("/response_read_data",  tags=["CHAT BOT API SERVER"]) 
-def response_read_data(session_id : int, file_path: str, filename: str, min_chunk_size : int):
+def response_read_data(file_path: str, filename: str, min_chunk_size : int = 50):
     """데이터 파일을 읽고, 벡터화하는 함수"""
     # 모델 초기화
     try:
-        # # 세션에서 파일 정보 읽기
-        # file_info = upload_files.get(session_id)
-        # if not file_info:
-        #     raise HTTPException(status_code=400, detail="파일 정보가 존재하지 않습니다.")
-        
-        # # 파일 경로와 이름
-        # file_path = file_info["file_path"]
-        # filename = file_info["filename"]
-        
+        # 파일 경로와 이름
+        target_path = file_path
         file_type = filename.split('.')[-1].lower()
-        target_path = f'./templates/{file_path}/{filename}'
+        
+        # file_type = filename.split('.')[-1].lower()
+        # target_path = f'./templates/{file_path}/{filename}'
         
         # 함수화 중
         # load_file(file_path, filename)
@@ -143,6 +128,10 @@ def response_read_data(session_id : int, file_path: str, filename: str, min_chun
             
         elif file_type == 'hwp': #hwp5txt
             loader = HWPLoader(target_path)
+            pages = loader.load()
+            
+        elif file_type == 'txt':
+            loader = TextLoader(target_path, encoding='utf-8')  # 인코딩을 utf-8로 지정
             pages = loader.load()
             
         #  format_doc(pages)
@@ -179,16 +168,17 @@ def response_read_data(session_id : int, file_path: str, filename: str, min_chun
                                                 embedding=embeddings,
                                                 distance_strategy = DistanceStrategy.COSINE,
                                                 )
+        FAISS_vectorstore.save_local("./db/faiss_index/{session_id}")
         faiss_retriever = FAISS_vectorstore.as_retriever()
         
         bm25_retriever = BM25Retriever.from_documents(filter_text_chunks)
-        bm25_retriever.k = 5
+        bm25_retriever.k = 3
         
         
         # 앙상블 retriever(2개 이상)
         ensemble_retriever = EnsembleRetriever(
             retrievers=[faiss_retriever, bm25_retriever],
-            weights=[0.7, 0.3],
+            weights=[0.3, 0.7],
         )
         
         # # 리랭커 (어울리는 순위 재조정 실험 중)
@@ -206,30 +196,22 @@ def response_read_data(session_id : int, file_path: str, filename: str, min_chun
         # 템플릿 설정
         prompt = ChatPromptTemplate.from_messages(
             [
-                # System Prompt 적용 (위에서 설계한 버전)
-                ("system", """당신은 재난관리 전문가로, 사용자의 질문에 대해 정확하고 공손하게 답변해야 합니다. 
-                파일 데이터를 입력받고 해당 데이터의 질문에 맞게 사용자가 원하는 정보를 제공합니다.
-                데이터의 내용은 간략하게 설명해야 합니다.
-                
+                ("system", """당신은 강진에서 제공하는 챗봇 안내원으로, 사용자의 질문에 대해 정확하고 공손하게 답변해야 합니다. 
+                파일 데이터가 있으면 해당 데이터를 정확히 읽고 필요한 정보를 간략하게 제공해야 합니다.
+
                 ### 🔹 **📌 핵심 원칙**
-                
-                1. **재난안전 관련 질문**: 
-                    - 입력받은 데이터 내에 있는 정보를 바탕으로 고객이 원하는 정보의 답을 생성합니다. 
-                    - 체계적인 단계별 설명(CoT, Chain of Thought 방식)을 포함하여 논리적이고 명확한 답변을 생성합니다.
-                    
-                2. **파일 입력 시**:
-                    - 문서 내용을 분석한 후 질문의 내용에 기반하여 필요한 정보를 추출합니다.
-                    - 사용자가 질문에 요약 및 검색을 원하면 **파일 요약, 특정 내용 검색 및 정리**를 수행합니다.
-                    - 동일한 내용을 반복하지 않습니다.
-                    
-                3. **언어 정책**:
+                1. **답변 시 유의 사항**: 
+                    - 입력받은 데이터 내에 있는 정보를 바탕으로 고객이 질문하는 정보의 답을 생성합니다.
+                    - 추가 정보가 필요할 시 해당 정보를 다시 물어봐야 합니다.
+            
+                2. **언어 정책**:
                     - 기본적으로 **모든 답변은 한국어**로 작성됩니다.
                     - 질문에 **한국어가 포함된 경우** 최대한 한국어로 답변합니다.
                     - 질문이 **한국어가 아닌 경우**, 해당 언어로 답변할 수 있습니다.
                 
-                4. **답변 스타일**:
-                    - **공손하고 정중한 어조**로 답변합니다.
-                    - 마지막에 **추가 질문**을 요구합니다.
+                3. **답변 스타일**:
+                    - 답변의 끝에는 추가로 필요한 정보를 제공할 수 있도록 **친절한 안내 문구**를 포함합니다.
+                    - **중복을 피하고, 핵심 정보만 간결하고 정확하게 제공**합니다.
                 """),
                 ("human", "질문: {question}")
             ]
@@ -238,9 +220,10 @@ def response_read_data(session_id : int, file_path: str, filename: str, min_chun
         # Chain 생성
         chain = ensemble_retriever | prompt | llm | StrOutputParser() 
         
-        response = chain.invoke("낙뢰가 일어난 뒤에 정전이 일어나면 어떻게 해야 할까?") 
+        response = chain.invoke("청년부부 결혼축하금 지원 연령이 어떻게 되는지 알려줘.") 
         print(response)
         
+        # 체인으로 옮겨놔야 하고, 검색된 문서 몇 개 검토하는지 코드 짜 놓기 (디버깅 필수)
         answer = {"answer" : response} # JSON 형식으로 리턴
         return answer  # 생성된 QA 체인 반환
     
@@ -329,3 +312,31 @@ def response_agent(session_id: int, prompt : str):
 
 # 해당 부분은 agent 실험용으로, 실전에선 안 쓰는 코드예요.
 # ========================================================================= # 
+# ✅ 데이터 시각화 기능 (그래프 생성)
+@router.get("/visualize",  tags=["CHAT BOT API SERVER"])
+def visualize(session_id: int, prompt : str):
+    # 예제 데이터
+    data = [
+        {"category": "A", "value": 10},
+        {"category": "B", "value": 20},
+        {"category": "C", "value": 15},
+        {"category": "D", "value": 25},
+        {"category": "E", "value": 18},
+    ]
+    df = pd.DataFrame(data)
+
+    # 바 차트 생성
+    plt.figure(figsize=(6, 4))
+    df.plot(kind="bar", x="category", y="value", legend=False, color="skyblue")
+    plt.xlabel("Category")
+    plt.ylabel("Value")
+    plt.title("데이터 시각화 결과")
+    plt.xticks(rotation=0)
+
+    # 그래프를 이미지로 변환 (Base64)
+    img_io = io.BytesIO()
+    plt.savefig(img_io, format="png", bbox_inches="tight")
+    img_io.seek(0)
+    img_base64 = base64.b64encode(img_io.read()).decode("utf-8")
+
+    return {"image": f"data:image/png;base64,{img_base64}"}

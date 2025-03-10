@@ -10,7 +10,7 @@ from auth import auth_router
 
 app = FastAPI(
     title="Chat Bot Server",
-    version="0.0.1",
+    version="0.1.0",
 )
 
 # cors allow path

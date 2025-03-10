@@ -6,27 +6,37 @@ import logging
 
 import pandas as pd
 import numpy as np
-from typing import List
+from typing import Dict, List, Optional
 
-from fastapi import Depends, APIRouter, HTTPException, UploadFile, File, Request, Form
+from fastapi import Depends, APIRouter, HTTPException, UploadFile, File, Request, Response, Form
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+from starlette.responses import JSONResponse
 
-import common
+from common.database import get_db
 from chat_bot_root_api import response_read_data, response_llama_data
 from .utils import get_upload_dir
 from .objects import Query, ExampleResponse, ChatRequest, ChatResponse, ClearChatRequest
+from .classified import handle_info, initial_state, handle_policy, handle_search
+from langchain_community.vectorstores import FAISS
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/chat_bot_root")
+# 이름 (지역별, 회사별 변경)
+router = APIRouter(prefix="/gangjin")
 
 chat_history = {}
 upload_files = {}
+# embeddings = OllamaEmbeddings(model=model_name)
+
+# 세션 저장소: 사용자 상태를 추적
+sessions: Dict[str, Dict] = {}
 
 # UPLOAD_DIR = "./uploads"
 # os.makedirs(UPLOAD_DIR, exist_ok=True)  # 폴더가 없으면 생성
-        
+# ============================================================================== # 
+
 @router.get("/activate_test", tags=["CHAT BOT ROOT"])
 async def activate_test():
     """서버 활성화 테스트 엔드포인트"""
@@ -35,26 +45,87 @@ async def activate_test():
     except Exception as e:
         logger.error(f"Activation test failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Server error during activation test")
+
 # ============================================================================== # 
-# 세션관리 (임시로 starlette middleware 사용)        
+# 채팅 세션 초기화 API
+@router.get("/chat/init/{session_id}", tags=["CHAT BOT ROOT"])
+async def initialize_chat(session_id: str):
+    """채팅 세션 초기화 및 첫 메시지 반환"""
+    # 새 세션 생성
+    sessions[session_id] = {
+        "state": "initial",
+        "data": {}
+    }
     
-@router.get("/set-session", tags=["CHAT BOT ROOT"])
-async def set_session(request: Request):
-    request.session["username"] = "user123"
-    return {"message": "Session set!"}
+    # 첫 메시지 반환
+    return {
+        "message": "안녕하세요! 강진군 빈집 정보 챗봇입니다. 어떤 정보를 알고 싶으신가요?",
+        "options": ["강진군 빈집 정보 검색", "최적의 빈집 찾기", "조건 별 검색", "관련 정책 검색"]
+    }
 
-@router.get("/get-session", tags=["CHAT BOT ROOT"])
-async def get_session(request: Request):
-    username = request.session.get("username")
-    if username:
-        return {"username": username}
-    return {"message": "No session found"}
+@router.post("/chat/message", tags=["CHAT BOT ROOT"])
+async def process_message(request: ChatRequest):
+    """사용자 메시지 처리 및 응답 생성"""
+    session_id = request.session_id
+    message = request.message
+    
+    # 세션이 없으면 새로 생성
+    if session_id not in sessions:
+        sessions[session_id] = {
+            "state": "initial",
+            "data": {}
+        }
+    
+    session = sessions[session_id]
+    current_state = session["state"]
 
-# 세션 초기화 (여기다 휴지통 이미지 넣고 클릭하면 삭제할 예정)
-@router.post('/reset', tags=["CHAT BOT ROOT"])
-async def reset_session(request: Request):
-    request.session.clear()
-    return '', 204
+    # 현재 상태에 따른 메시지 처리
+    if current_state == "initial":
+        return initial_state(session, message)
+    elif current_state == "info":
+        return handle_info(session, message)
+    elif current_state == "search":
+        # 🟢 검색 기능이므로 RAG 실행 (파일이 업로드된 경우만)
+        if session_id in upload_files:
+            file_info = upload_files[session_id]
+            faiss_index_path = f"./db/faiss_index/{session_id}"
+
+            if os.path.exists(faiss_index_path):
+                response_data = FAISS.load_local(faiss_index_path)
+            else:
+                response_data = response_read_data(
+                    file_path=file_info["file_path"], 
+                    filename=file_info["filename"], 
+                    min_chunk_size=0
+                )
+            return {"message": response_data}
+        else:
+            return {"message": "파일이 업로드되지 않았습니다. 검색 기능을 사용할 수 없습니다."}
+
+    elif current_state == 'policy':
+        return handle_policy(session, message)
+    elif current_state == 'category':
+        session["state"] = "initial"
+        return {
+            "message": "준비 중입니다. 다른 기능을 이용해 주세요!",
+            "need_confirm": True
+        }
+    else:
+        session["state"] = "initial"
+        return response_llama_data(message)  # 🟢 일반 챗봇 실행
+# @router.get("/set-session", tags=["CHAT BOT ROOT"])
+# async def set_session(request: Request, username: str):
+#     request.session["user"] = {
+#        "username": username,
+#        "chat_history": []  # 대화 기록을 저장할 공간 추가
+#    }
+#     return JSONResponse(content={"message": f"{username}의 대화 기록 저장 중입니다....."}, status_code=200)
+# 
+# # 세션 초기화 (여기다 휴지통 이미지 넣고 클릭하면 삭제할 예정)
+# @router.post('/reset', tags=["CHAT BOT ROOT"])
+# async def reset_session(request: Request):
+#     request.session.clear()
+#     return '', 204
 # ============================================================================== # 
 
 # 📌 chat으로 사용자 메세지 받고 답변 스트림 형식으로 하기
@@ -62,45 +133,11 @@ async def reset_session(request: Request):
 @router.post("/chat", response_model=ChatResponse, tags=["CHAT BOT ROOT"])
 async def chat_request(chat: ChatRequest):
     """ 사용자의 메시지를 저장하고 학습 """
-    if chat.session_id not in chat_history:
-        chat_history[chat.session_id] = []
-    
-    chat_history[chat.session_id].append(chat.message)
 
-    # 파일이 업로드된 경우 response_read_data 호출, 아니면 response_llama_data 호출
-    if chat.session_id in upload_files:
-        file_info = upload_files[chat.session_id]
-        response_data = response_read_data(
-            file_path=file_info["file_path"], 
-            filename=file_info["filename"], 
-            min_chunk_size=0
-            )
-    else:
-        response_data = response_llama_data(prompt=chat.message)
-        
-    print(type(response_data), response_data) 
-    # 스트리밍 X   
+    # 🟢 항상 일반 챗봇 실행
+    response_data = response_llama_data(prompt=chat.message)
+
     return ChatResponse(session_id=chat.session_id, message=response_data["answer"])
-    
-# # 📌 answer에서 나온 답변 가져오기.
-# @router.get("/answer", response_model=ChatResponse, tags=["CHAT BOT ROOT"])
-# async def chat_response(chat: ChatRequest):
-#     """ 데이터를 스트리밍으로 순차적으로 전송 """
-#     handler = StreamHandler()
-    
-#     if chat.session_id in upload_files:
-#         file_info = upload_files[chat.session_id]
-#         response_data = response_read_data(
-#             file_path=file_info["file_path"], 
-#             filename=file_info["filename"], 
-#             min_chunk_size=0
-#         )
-#     else:
-#         response_data = response_llama_data(prompt=chat.message, callbacks=[handler])
-            
-#     handler.mark_done()
-
-#     return StreamingResponse(handler.stream_tokens(), media_type='text/plain')
 # ============================================================================== # 
 
 @router.post("/upload", tags=["CHAT BOT ROOT"])
@@ -148,4 +185,6 @@ async def get_example_questions():
 # ============================================================================== # 
 
 # 채팅 기록 표시
+
+
 

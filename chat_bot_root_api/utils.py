@@ -1,9 +1,12 @@
 import re
 import pandas as pd
 from tqdm import tqdm
+import io
+import base64
+import pypdfium2
+
 from bs4 import BeautifulSoup
 from langchain_community.document_loaders import PyMuPDFLoader
-import pypdfium2
 from langchain_ollama import ChatOllama
 from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, PyPDFium2Loader, DataFrameLoader, DirectoryLoader, TextLoader
 from langchain_teddynote.document_loaders import HWPLoader
@@ -81,3 +84,4 @@ def convert_hwp_to_markdown(hwp_table_text: str):
 #     for i in tqdm(range(0, len(text_chunks), batch_size), total=len(text_chunks)//batch_size):
 #         batch = text_chunks[i:i+batch_size]
 #         vector_store.add_documents(batch)  # 배치로 벡터화하여 저장
+
