@@ -10,6 +10,7 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_ollama import ChatOllama
 from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, PyPDFium2Loader, DataFrameLoader, DirectoryLoader, TextLoader
 from langchain_teddynote.document_loaders import HWPLoader
+import pytesseract
 # 전역 함수
 
 
@@ -78,10 +79,12 @@ def convert_hwp_to_markdown(hwp_table_text: str):
 
 # ====================       성능 향상 부분       ======================== # 
 
-# # 벡터화 처리 배치화(데이터 다운로드 batch해서 빠르게 해줌)
-# def batch_vectorize(text_chunks, embeddings, vector_store, batch_size=10):
-#     """텍스트 덩어리를 배치로 벡터화하여 저장하는 함수"""
-#     for i in tqdm(range(0, len(text_chunks), batch_size), total=len(text_chunks)//batch_size):
-#         batch = text_chunks[i:i+batch_size]
-#         vector_store.add_documents(batch)  # 배치로 벡터화하여 저장
-
+# PDF page에서 텍스트 추출하는 함수 작성
+def extract_text_with_ocr(page):
+    text = page.extract_text()
+    if not text: # 만약 추출할 텍스트가 없다면
+        # PDF page를 이미지로 변환
+        image = page.to_image()
+        # 이미지에서 OCR 재실행하여 텍스트 추출
+        text = pytesseract.image_to_string(image)
+    return text

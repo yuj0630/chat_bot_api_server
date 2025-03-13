@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 # 데이터 모델
 class ExampleResponse(BaseModel):
@@ -16,6 +16,7 @@ class ChatBaseModel(BaseModel):
 
 class ChatRequest(ChatBaseModel):
     pass;
+    file_path : Optional[str] = None
 
 # 응답할 모델 정의
 class ChatResponse(ChatBaseModel):

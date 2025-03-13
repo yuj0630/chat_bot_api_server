@@ -85,47 +85,27 @@ async def process_message(request: ChatRequest):
     elif current_state == "info":
         return handle_info(session, message)
     elif current_state == "search":
-        # 🟢 검색 기능이므로 RAG 실행 (파일이 업로드된 경우만)
-        if session_id in upload_files:
-            file_info = upload_files[session_id]
-            faiss_index_path = f"./db/faiss_index/{session_id}"
-
-            if os.path.exists(faiss_index_path):
-                response_data = FAISS.load_local(faiss_index_path)
-            else:
-                response_data = response_read_data(
-                    file_path=file_info["file_path"], 
-                    filename=file_info["filename"], 
-                    min_chunk_size=0
-                )
-            return {"message": response_data}
-        else:
-            return {"message": "파일이 업로드되지 않았습니다. 검색 기능을 사용할 수 없습니다."}
-
+        return handle_search(session, message)
     elif current_state == 'policy':
         return handle_policy(session, message)
-    elif current_state == 'category':
-        session["state"] = "initial"
-        return {
-            "message": "준비 중입니다. 다른 기능을 이용해 주세요!",
-            "need_confirm": True
-        }
     else:
         session["state"] = "initial"
-        return response_llama_data(message)  # 🟢 일반 챗봇 실행
-# @router.get("/set-session", tags=["CHAT BOT ROOT"])
-# async def set_session(request: Request, username: str):
-#     request.session["user"] = {
-#        "username": username,
-#        "chat_history": []  # 대화 기록을 저장할 공간 추가
-#    }
-#     return JSONResponse(content={"message": f"{username}의 대화 기록 저장 중입니다....."}, status_code=200)
-# 
-# # 세션 초기화 (여기다 휴지통 이미지 넣고 클릭하면 삭제할 예정)
-# @router.post('/reset', tags=["CHAT BOT ROOT"])
-# async def reset_session(request: Request):
-#     request.session.clear()
-#     return '', 204
+        response_data = response_llama_data(message)  # ✅ JSON(dict)로 변환됨
+        return {"message": response_data["answer"]}  # ✅ 안전하게 사용 가능
+    
+@router.get("/set-session", tags=["CHAT BOT ROOT"])
+async def set_session(request: Request, username: str):
+    request.session["user"] = {
+    "username": username,
+    "chat_history": []  # 대화 기록을 저장할 공간 추가
+}
+    return JSONResponse(content={"message": f"{username}의 대화 기록 저장 중입니다....."}, status_code=200)
+
+# 세션 초기화 (여기다 휴지통 이미지 넣고 클릭하면 삭제할 예정)
+@router.post('/reset', tags=["CHAT BOT ROOT"])
+async def reset_session(request: Request):
+    request.session.clear()
+    return '', 204
 # ============================================================================== # 
 
 # 📌 chat으로 사용자 메세지 받고 답변 스트림 형식으로 하기
@@ -133,10 +113,33 @@ async def process_message(request: ChatRequest):
 @router.post("/chat", response_model=ChatResponse, tags=["CHAT BOT ROOT"])
 async def chat_request(chat: ChatRequest):
     """ 사용자의 메시지를 저장하고 학습 """
+    if chat.session_id not in chat_history:
+       chat_history[chat.session_id] = []
 
-    # 🟢 항상 일반 챗봇 실행
-    response_data = response_llama_data(prompt=chat.message)
+    chat_history[chat.session_id].append(chat.message)
+    # 파일이 업로드된 경우 response_read_data 호출, 아니면 response_llama_data 호출
+    if chat.session_id in upload_files:
+        file_info = upload_files[chat.session_id]
+        faiss_index_path = f"./db/faiss_index/{chat.session_id}"
 
+        # 인덱스 존재 여부 확인
+        if os.path.exists(faiss_index_path):
+            # 기존 인덱스 로드
+            response_data = FAISS.load_local(faiss_index_path)
+        else:
+            # 새로운 데이터 로드
+            response_data = response_read_data(
+                message=chat.message,
+                file_path=file_info["file_path"], 
+                filename=file_info["filename"], 
+                min_chunk_size=50
+            )
+    # 파일이 없는 경우 일반 챗봇 응답
+    else:
+        response_data = response_llama_data(prompt=chat.message)
+
+    # print(type(response_data), response_data) 
+    # 스트리밍 X   
     return ChatResponse(session_id=chat.session_id, message=response_data["answer"])
 # ============================================================================== # 
 

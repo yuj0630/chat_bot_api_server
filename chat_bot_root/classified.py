@@ -113,7 +113,6 @@ def initial_state(session, message):
         session["state"] = "search"
         return {
             "message": "최적의 빈집을 찾아드리겠습니다. 원하는 집의 정보를 입력해주세요.",
-            "options": ["주거용", "상업용", "농업용", "기타"]
         }
     elif "조건 별" in message:
         session["state"] = "category"
@@ -124,145 +123,121 @@ def initial_state(session, message):
     elif "관련 정책" in message or "법" in message:
         session["state"] = "policy"
         return {
-            "message": "본인에게 맞는 정책을 찾아드려요. 어떤 분야의 정책을 찾고 계신가요?",
-            "options": ["교육", "취업", "결혼", "사업"]  # 확인 버튼 표시 플래그
+            "message": "본인에게 맞는 정책을 찾아드려요. 정책 관련 문서를 업로드해주세요.",
         }
     else:
         session["state"] = "initial"
         # 인식할 수 없는 메시지 처리
         response_data = response_llama_data(prompt=message)
-        
-        # response_data가 문자열인지 확인
-        if isinstance(response_data, str):
-            # 문자열인 경우 바로 message로 사용
-            return {
-                "message": response_data,  # LLM에서 받은 응답 반환
-                "need_confirm": False  # 확인 버튼 필요 없음
-        }
-        elif isinstance(response_data, dict) and "answer" in response_data:
-            # response_data가 딕셔너리이고 "answer" 키가 있는 경우
-            return {
-                "message": response_data["answer"],  # LLM에서 받은 응답 반환
-                "need_confirm": False  # 확인 버튼 필요 없음
-            }
-        else:
-            # 예상치 못한 경우 처리 (예: 응답 형식이 잘못된 경우)
-            return {
-                "message": "알 수 없는 응답 형식입니다.",
-                "need_confirm": False
-            }
+        print(type(response_data), response_data)
+        return {"message": response_data["message"]}
 
 def handle_info(session: Dict, message: str) -> Dict:
-    """나이 입력 처리"""
-    # 숫자 추출
-    age = None
-    try:
-        # 숫자만 추출 ("25세" -> 25)
-        numbers = ''.join(filter(str.isdigit, message))
-        if numbers:
-            age = int(numbers)
-        else:
-            age = None
-    except:
-        age = None
+    """강진군 빈집 정보 안내"""
     
-    if age is None:
+    keywords = ["강진군", "빈집", "주택", "공가", "임대", "매매"]
+    if not any(kw in message for kw in keywords):
         return {
-            "message": "올바른 나이를 입력해주세요. 숫자로만 입력하거나 '25세'와 같이 입력해주세요.",
-            "options": ["20세", "25세", "30세", "35세", "40세"]
+            "message": "빈집에 대한 정보를 원하시나요? '강진군 빈집', '빈집 매매', '공가 안내' 등의 키워드로 질문해 주세요.",
+            "options": ["강진군 빈집 현황", "빈집 매매 조건", "공가 임대 신청"]
         }
-    
-    # 해당 나이에 맞는 프로그램 필터링
-    matching_programs = []
-    for program in youth_programs:
-        if program["age_range"]["min"] <= age <= program["age_range"]["max"]:
-            matching_programs.append(program)
-    
-    # 상태 초기화
-    session["state"] = "initial"
-    
-    if matching_programs:
-        # 챗봇 형식으로 포맷팅
-        response_message = f"{age}세에 신청 가능한 지원 사업은 총 {len(matching_programs)}개입니다:\n\n"
-        for i, program in enumerate(matching_programs, 1):
-            response_message += f"[{i}] {program['name']}\n"
-            response_message += f"- 대상: {program['age_range']['min']}세 ~ {program['age_range']['max']}세\n"
-            response_message += f"- 내용: {program['description']}\n"
-            if program.get("keywords"):
-                response_message += f"- 키워드: {', '.join(program['keywords'])}\n"
-            response_message += "\n"
-        
-        return {
-            "message": response_message.strip(),
-            "formatted": True  # 이미 포맷팅된 메시지임을 표시
-        }
-    else:
-        return {
-            "message": f"죄송합니다. {age}세에 해당하는 지원 사업을 찾지 못했습니다. 다른 나이를 입력해보시겠어요?",
-            "options": ["20세", "25세", "30세", "35세", "40세"]
-        }
+
+    # 빈집 정보 안내 (예제)
+    response_message = (
+        "강진군 빈집 정보 안내입니다.\n\n"
+        "- 강진군 내 공가(빈집) 현황 및 매매 정보 제공\n"
+        "- 임대 및 매매 조건 안내\n"
+        "- 공가 재활용 지원 정책 안내\n\n"
+        "더 자세한 정보를 원하시면 '빈집 검색' 또는 '매매 가능한 빈집' 등의 키워드를 입력해 주세요."
+    )
+
+    return {
+        "message": response_message,
+        "options": ["빈집 검색", "매매 가능한 빈집", "임대 가능한 빈집"]
+    }
 
 
 def handle_search(session: Dict, message: str) -> Dict:
-    """키워드 입력 처리"""
+    """빈집 검색"""
     keyword = message.strip().lower()
-    
+    print(keyword)
+
     if not keyword:
         return {
-            "message": "검색어를 입력해주세요.",
-            "options": ["취업", "창업", "주거", "금융", "교육"]
+            "message": "검색할 빈집 조건을 입력해주세요. (예: '강진군 빈집 매매', '임대 가능 빈집')",
+            "options": ["매매 가능한 빈집", "임대 가능한 빈집", "빈집 지원 정책"]
         }
-    
-    # 키워드 매칭 프로그램 찾기
-    matching_programs = []
-    for program in youth_programs:
-        # 제목, 설명, 키워드에서 검색
-        if (keyword in program["name"].lower() or 
-            keyword in program["description"].lower() or
-            any(keyword in kw.lower() for kw in program["keywords"])):
-            matching_programs.append(program)
-    
-    # 상태 초기화
-    session["state"] = "initial"
-    
-    if matching_programs:
-        # 챗봇 형식으로 포맷팅
-        response_message = f"'{keyword}' 키워드에 관련된 지원 사업은 총 {len(matching_programs)}개입니다:\n\n"
-        for i, program in enumerate(matching_programs, 1):
-            response_message += f"[{i}] {program['name']}\n"
-            response_message += f"- 대상: {program['age_range']['min']}세 ~ {program['age_range']['max']}세\n"
-            response_message += f"- 내용: {program['description']}\n"
-            if program.get("keywords"):
-                response_message += f"- 키워드: {', '.join(program['keywords'])}\n"
-            response_message += "\n"
+
+    # 빈집 데이터 (예제)
+    vacant_houses = [
+        {"id": 1, "location": "강진읍", "price": 5000, "status": "매매 가능"},
+        {"id": 2, "location": "마량면", "price": 3000, "status": "임대 가능"},
+        {"id": 3, "location": "도암면", "price": 3000, "status": "공가 지원 가능"},
+        {"id": 4, "location": "군동면", "price": 4500, "status": "매매 가능"},
+        {"id": 5, "location": "칠량면", "price": 2500, "status": "임대 가능"},
+        {"id": 6, "location": "신전면", "price": 2500, "status": "공가 지원 가능"},
+        {"id": 7, "location": "대구면", "price": 6000, "status": "매매 가능"},
+        {"id": 8, "location": "성전면", "price": 3500, "status": "임대 가능"},
+        {"id": 9, "location": "옴천면", "price": 5000, "status": "공가 지원 가능"},
+        {"id": 10, "location": "병영면", "price": 7000, "status": "매매 가능"},
+        {"id": 11, "location": "작천면", "price": 4000, "status": "임대 가능"},
+        {"id": 12, "location": "강진읍", "price": 2000, "status": "공가 지원 가능"},
+        {"id": 13, "location": "마량면", "price": 6000, "status": "협의 가능"},
+        {"id": 14, "location": "도암면", "price": 3200, "status": "매매 가능"},
+        {"id": 15, "location": "군동면", "price": 4800, "status": "임대 가능"},
+    ]
+
+    # 키워드 기반 검색 (대소문자 구분 없이, 공백 제거)
+    matching_houses = [
+        house for house in vacant_houses
+        if keyword in house["location"].lower() or keyword in house["status"].lower()
+    ]
+    print(matching_houses)
+
+    if matching_houses:
+        response_message = f"'{keyword}' 조건에 맞는 빈집 목록입니다:\n\n"
         
+        for i, house in enumerate(matching_houses, 1):            
+            # 가격 처리 (문자열일 경우 변환)
+            price = house.get("price", "0")  # 기본값 "0"
+            if isinstance(price, str):
+                price = price.replace("만 원", "").strip()  # "만 원" 제거
+                price = int(price) if price.isdigit() else 0  # 숫자 변환, 실패 시 0
+                
+            response_message += f"[{i}] 위치: {house['location']}\n"
+            response_message += f"- 가격: {price}만 원\n"
+            response_message += f"- 상태: {house['status']}\n\n"
+
         return {
             "message": response_message.strip(),
-            "formatted": True  # 이미 포맷팅된 메시지임을 표시
+            "formatted": True
         }
     else:
         return {
-            "message": f"죄송합니다. '{keyword}' 키워드에 관련된 지원 사업을 찾지 못했습니다. 다른 키워드로 검색해보세요.",
-            "options": ["취업", "창업", "주거", "금융", "교육"]
+            "message": f"'{keyword}' 조건에 맞는 빈집을 찾을 수 없습니다. 다른 조건으로 검색해보세요.",
+            "options": ["매매 가능한 빈집", "임대 가능한 빈집", "빈집 지원 정책"]
         }
         
-async def handle_policy(session: Dict, message: Dict) -> Dict:
+def handle_policy(session: Dict, message: Dict) -> Dict:
     file_path = message.get("file_path", "")
     filename = message.get("filename", "")
 
     if not file_path or not filename:
         return {"status": "error", "message": "file_path 또는 filename이 누락되었습니다."}
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(f"{API_BASE_URL}/gangjin/response_read_data", json={
+    with httpx.AsyncClient() as client:
+        response = client.post(f"{API_BASE_URL}/gangjin/response_read_data", json={
             "file_path": file_path,
             "filename": filename
         })
 
     if response.status_code == 200:
-        return response.json()
+        # 비동기적으로 json 데이터를 처리합니다.
+        data = response.json()
+        return data
+    
     else:
-        return {"status": "error", "message": "response_read_data 호출 실패", "details": response.text}
+        return {"status": "error", "message": "문서 호출 실패", "details": response.text}
 
 # 최상위 핸들러 함수에 아래와 같은 코드 추가 필요
 def process_message(session: Dict, message: str) -> Dict:
@@ -283,115 +258,3 @@ def process_message(session: Dict, message: str) -> Dict:
         # 알 수 없는 상태는 초기화
         session["state"] = "initial"
         return initial_state(session, message)
-
-
-
-# # 도구 정의
-# def list_all_programs(dummy_input: str = None) -> str:
-#     """모든 청년지원 사업 목록을 보여줍니다."""
-#     result = "현재 제공 가능한 청년지원 사업 목록입니다:\n\n"
-#     for i, program in enumerate(youth_programs, 1):
-#         result += f"[{i}] {program['name']}\n"
-#         result += f"- 대상: {program['age_range']['min']}세 ~ {program['age_range']['max']}세\n"
-#         result += f"- 내용: {program['description']}\n"
-#         result += f"- 키워드: {', '.join(program['keywords'])}\n\n"
-#     return result
-
-# def search_by_age(age_str: str) -> str:
-#     """나이에 맞는 청년지원 사업을 찾습니다."""
-#     try:
-#         # 숫자만 추출 ("25세" -> 25)
-#         numbers = ''.join(filter(str.isdigit, age_str))
-#         if numbers:
-#             age = int(numbers)
-#         else:
-#             return "올바른 나이를 입력해주세요. 
-#     except:
-#         return "올바른 나이를 입력해주세요.
-    
-#     # 해당 나이에 맞는 프로그램 필터링
-#     matching_programs = []
-#     for program in youth_programs:
-#         if program["age_range"]["min"] <= age <= program["age_range"]["max"]:
-#             matching_programs.append(program)
-    
-#     if matching_programs:
-#         result = f"{age}세에 신청 가능한 지원 사업은 총 {len(matching_programs)}개입니다:\n\n"
-#         for i, program in enumerate(matching_programs, 1):
-#             result += f"[{i}] {program['name']}\n"
-#             result += f"- 대상: {program['age_range']['min']}세 ~ {program['age_range']['max']}세\n"
-#             result += f"- 내용: {program['description']}\n"
-#             result += f"- 키워드: {', '.join(program['keywords'])}\n\n"
-#         return result
-#     else:
-#         return f"죄송합니다. 당신에게 해당하는 지원 사업을 찾지 못했습니다."
-
-# def search_by_keyword(keyword: str) -> str:
-#     """키워드로 청년지원 사업을 검색합니다."""
-#     keyword = keyword.strip().lower()
-    
-#     if not keyword:
-#         return "검색어를 입력해주세요."
-    
-#     # 키워드 매칭 프로그램 찾기
-#     matching_programs = []
-#     for program in youth_programs:
-#         # 제목, 설명, 키워드에서 검색
-#         if (keyword in program["name"].lower() or 
-#             keyword in program["description"].lower() or
-#             any(keyword in kw.lower() for kw in program["keywords"])):
-#             matching_programs.append(program)
-    
-#     if matching_programs:
-#         result = f"'{keyword}' 로 확인된 지원 사업은 총 {len(matching_programs)}개입니다:\n\n"
-#         for i, program in enumerate(matching_programs, 1):
-#             result += f"[{i}] {program['name']}\n"
-#             result += f"- 대상: {program['age_range']['min']}세 ~ {program['age_range']['max']}세\n"
-#             result += f"- 내용: {program['description']}\n"
-#             result += f"- 키워드: {', '.join(program['keywords'])}\n\n"
-#         return result
-#     else:
-#         return f"죄송합니다. '{keyword}' 에 관련된 지원 사업을 찾지 못했습니다."
-
-# def get_program_details(program_id: str) -> str:
-#     """특정 프로그램의 상세 정보를 제공합니다."""
-#     try:
-#         # 프로그램 ID 처리
-#         if "첫" in program_id or "처음" in program_id:
-#             index = 0
-#         elif "두" in program_id or "2" in program_id:
-#             index = 1
-#         elif "세" in program_id or "3" in program_id:
-#             index = 2
-#         elif "네" in program_id or "4" in program_id:
-#             index = 3
-#         elif "다섯" in program_id or "5" in program_id:
-#             index = 4
-#         else:
-#             # 숫자만 추출
-#             numbers = ''.join(filter(str.isdigit, program_id))
-#             if numbers:
-#                 index = int(numbers) - 1  # 인덱스는 0부터 시작
-#             else:
-#                 return "올바른 프로그램 번호를 입력해주세요. 예: '1', '첫 번째'"
-#     except:
-#         return "올바른 프로그램 번호를 입력해주세요."
-    
-#     # 프로그램 목록 체크
-#     if index < 0 or index >= len(youth_programs):
-#         return "죄송합니다. 해당 번호의 프로그램을 찾을 수 없습니다."
-    
-#     program = youth_programs[index]
-    
-#     # 상세 정보 제공
-#     detail = f"[{program['name']} 상세 정보]\n\n"
-#     detail += f"대상: {program['age_range']['min']}세 ~ {program['age_range']['max']}세\n"
-#     detail += f"내용: {program['description']}\n"
-#     detail += f"키워드: {', '.join(program['keywords'])}\n\n"
-    
-#     # 추가 정보
-#     detail += f"지원 자격: {program['eligibility']}\n"
-#     detail += f"신청 방법: {program['application']}\n"
-#     detail += f"구비 서류: {', '.join(program['documents'])}\n"
-    
-#     return detail

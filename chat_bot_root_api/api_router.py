@@ -9,12 +9,13 @@ from .model import setup_llm_pipeline
 from .utils import load_file
 from transformers import pipeline
 import matplotlib.pyplot as plt
+import numpy as np
 
 # langchain 모듈
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, PDFPlumberLoader, DataFrameLoader, DirectoryLoader, TextLoader
+from langchain_community.document_loaders import CSVLoader, UnstructuredExcelLoader, PDFPlumberLoader, DataFrameLoader, Docx2txtLoader, TextLoader, JSONLoader
 from langchain_teddynote.document_loaders import HWPLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_core.runnables import RunnablePassthrough, RunnableParallel
@@ -38,6 +39,10 @@ from langchain.agents import AgentExecutor
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
+# 병렬처리 (학습속도 가속)
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
+
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 
@@ -57,7 +62,7 @@ def response_llama_data(prompt : str):
     # 모델에 메시지 전달
     try:
         # System Prompt 적용 (위에서 설계한 버전)
-        system_prompt = "system", """당신은 강진에서 제공하는 챗봇 안내원으로, 사용자의 질문에 대해 정확하고 공손하게 답변해야 합니다. 
+        system_prompt = """당신은 강진에서 제공하는 챗봇 안내원으로, 사용자의 질문에 대해 정확하고 공손하게 답변해야 합니다. 
                 파일 데이터가 있으면 해당 데이터를 정확히 읽고 필요한 정보를 간략하게 제공해야 합니다.
 
                 ### 🔹 **📌 핵심 원칙**
@@ -84,10 +89,10 @@ def response_llama_data(prompt : str):
         
         # ✅ AIMessage 객체에서 content(문자열) 값만 가져오기
         answer_text = response.content if hasattr(response, 'content') else str(response)
-        response_data = {"answer" : answer_text} #JSON 형식으로 리턴
+        print(type(answer_text), answer_text[:500])
         
         # 이제 response_data["answer"]를 사용할 수 있습니다
-        return {"message": response_data["answer"]}
+        return {"message": answer_text[:500]}
     
     except Exception as e:
         return f"오류 발생: {str(e)}"
@@ -95,7 +100,7 @@ def response_llama_data(prompt : str):
 # ========================================================================= # 
 # 입력된 데이터 있을 시 해당 데이터 읽고 학습하는 코드     
 @router.get("/response_read_data",  tags=["CHAT BOT API SERVER"]) 
-def response_read_data(file_path: str, filename: str, min_chunk_size : int = 50):
+def response_read_data(message: str, file_path: str, filename: str, min_chunk_size : int = 50):
     """데이터 파일을 읽고, 벡터화하는 함수"""
     # 모델 초기화
     try:
@@ -126,7 +131,7 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int = 50)
             loader = DataFrameLoader(df, page_content_column="긴급구조분류명")
             pages = loader.load()
             
-        elif file_type == 'hwp': #hwp5txt
+        elif file_type == 'hwp' or file_type == 'hwpx': #hwp5txt
             loader = HWPLoader(target_path)
             pages = loader.load()
             
@@ -134,6 +139,11 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int = 50)
             loader = TextLoader(target_path, encoding='utf-8')  # 인코딩을 utf-8로 지정
             pages = loader.load()
             
+        elif file_type == 'json':
+            loader = JSONLoader(
+                file_path = target_path,
+                text_content=False
+            )
         #  format_doc(pages)
         print(pages)
             
@@ -141,7 +151,7 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int = 50)
             raise ValueError("파일에서 텍스트를 추출할 수 없습니다.")
         
         # 텍스트 분할 및 청킹
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
         text_chunks = text_splitter.split_documents(pages)
         
         # 3. 최소 크기 필터링
@@ -151,25 +161,27 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int = 50)
         
         # Embedding과 Vector Store 설정
         embeddings = OllamaEmbeddings(model=model_name)  # 사용하려는 Embedding 모델
-        vector_store = Chroma.from_documents(filter_text_chunks, embeddings)
         
-        for i, chunk in tqdm(enumerate(filter_text_chunks), total=len(filter_text_chunks), desc="Vectorizing documents"):
-            # 각 텍스트 덩어리를 벡터화하여 저장
-            vector_store.add_documents([chunk])
+        ## Retriever 설정(chroma, FAISS, bm25)
+        ## Chroma retriever 사용해서 학습
+        # vector_store = Chroma.from_documents(filter_text_chunks, embeddings) 
         
-        # 이제 벡터스토어 중 chroma, FAISS, bm25, finecone(유료), pgvector 중 하나 선택
-        # # Retriever 설정(chroma, FAISS, bm25)
+        # for i, chunk in tqdm(enumerate(filter_text_chunks), total=len(filter_text_chunks), desc="Vectorizing documents"):
+        #     # 각 텍스트 덩어리를 벡터화하여 저장
+        #     vector_store.add_documents([chunk])
+        
         # chroma_retriever = vector_store.as_retriever(
         #     search_type="similarity",
         #     search_kwargs={"k": 3}
         #     )
-        
+    
+        # FAISS_vectorstore 이용해서 학습
         FAISS_vectorstore = FAISS.from_documents(documents=filter_text_chunks,
                                                 embedding=embeddings,
                                                 distance_strategy = DistanceStrategy.COSINE,
                                                 )
         FAISS_vectorstore.save_local("./db/faiss_index/{session_id}")
-        faiss_retriever = FAISS_vectorstore.as_retriever()
+        faiss_retriever = FAISS_vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 3})
         
         bm25_retriever = BM25Retriever.from_documents(filter_text_chunks)
         bm25_retriever.k = 3
@@ -178,20 +190,51 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int = 50)
         # 앙상블 retriever(2개 이상)
         ensemble_retriever = EnsembleRetriever(
             retrievers=[faiss_retriever, bm25_retriever],
-            weights=[0.3, 0.7],
+            weights=[0.5, 0.5],
         )
         
-        # # 리랭커 (어울리는 순위 재조정 실험 중)
-        # model = CrossEncoder("BAAI/bge-reranker-v2-m3")
-        # compressor = CrossEncoderReranker(model=model, top_n=3)
+        query = message
+        # FAISS와 BM25에서 검색된 문서들
+        faiss_docs = faiss_retriever.get_relevant_documents(query)
+        bm25_docs = bm25_retriever.get_relevant_documents(query)
+        ensemble_docs = ensemble_retriever.get_relevant_documents(query)
         
-        # compression_retriever = ContextualCompressionRetriever(
-        #     base_compressor=compressor, base_retriever=ensemble_retriever)
+        # FAISS에서 검색된 문서 표시
+        print("### FAISS 검색된 문서 ###")
+        for rank, doc in enumerate(faiss_docs, start=0):
+            print(f"Rank: {rank}")
+            print(f"Document Title: {doc.metadata.get('title', 'No Title')}")
+            print(f"Document Content: {doc.page_content}\n")
+
+        # BM25에서 검색된 문서 표시
+        print("### BM25 검색된 문서 ###")
+        for rank, doc in enumerate(bm25_docs, start=0):
+            print(f"Rank: {rank}")
+            print(f"Document Title: {doc.metadata.get('title', 'No Title')}")
+            print(f"Document Content: {doc.page_content}\n")
+            
+        # BM25에서 검색된 문서 표시
+        print("### 앙상블 검색된 문서 ###")
+        for rank, doc in enumerate(ensemble_docs, start=0):
+            print(f"Rank: {rank}")
+            print(f"Document Title: {doc.metadata.get('title', 'No Title')}")
+            print(f"Document Content: {doc.page_content}\n")
         
-        # Retriever 타입 확인
-        print(f"FAISS Retriever 타입: {type(faiss_retriever)}")
-        print(f"BM25Retriver 타입: {type(bm25_retriever)}")
-        print(f"Ensemble Retriever 타입: {type(ensemble_retriever)}")
+        
+        # # ✅ Rerank 모델 로드
+        # reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+        
+        # # ✅ 2. RAG에서 검색된 문서 가져오기
+        # query = "사용자의 질문"  # 🔵 실제 사용자 입력값으로 대체
+        # retrieved_docs = ensemble_retriever.get_relevant_documents(query)
+
+        # # ✅ 3. Rerank 적용 (유사도 점수 기반 정렬)
+        # document_texts = [doc.page_content for doc in retrieved_docs]  # 🔵 검색된 문서 리스트
+        # scores = reranker.predict([(query, doc) for doc in document_texts])  # 🔵 문장-질문 유사도 평가
+        # reranked_docs = [doc for _, doc in sorted(zip(scores, retrieved_docs), key=lambda x: x[0], reverse=True)]
+
+        # # ✅ 4. 최종 상위 문서 선택 (Top 5)
+        # final_docs = reranked_docs[:5]
         
         # 템플릿 설정
         prompt = ChatPromptTemplate.from_messages(
@@ -213,19 +256,20 @@ def response_read_data(file_path: str, filename: str, min_chunk_size : int = 50)
                     - 답변의 끝에는 추가로 필요한 정보를 제공할 수 있도록 **친절한 안내 문구**를 포함합니다.
                     - **중복을 피하고, 핵심 정보만 간결하고 정확하게 제공**합니다.
                 """),
-                ("human", "질문: {question}")
+                ("human", "{question}")
             ]
         )
         
         # Chain 생성
-        chain = ensemble_retriever | prompt | llm | StrOutputParser() 
+        chain = bm25_retriever | prompt | llm | StrOutputParser() 
         
-        response = chain.invoke("청년부부 결혼축하금 지원 연령이 어떻게 되는지 알려줘.") 
-        print(response)
+        response = chain.invoke(message) 
+        print(type(response), response)
         
-        # 체인으로 옮겨놔야 하고, 검색된 문서 몇 개 검토하는지 코드 짜 놓기 (디버깅 필수)
-        answer = {"answer" : response} # JSON 형식으로 리턴
-        return answer  # 생성된 QA 체인 반환
+        # ✅ JSON 형식으로 변환
+        answer_text = {"answer": response.content if hasattr(response, 'content') else str(response)}
+        
+        return answer_text  # 생성된 QA 체인 반환
     
     except Exception as e:
         print(f"오류가 발생했습니다: {str(e)}")

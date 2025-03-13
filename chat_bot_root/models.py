@@ -1,5 +1,6 @@
 from sqlalchemy import Integer, String, DateTime, Column
 from sqlalchemy.orm import Column
+from typing import Optional
 import common
 
 # 참고

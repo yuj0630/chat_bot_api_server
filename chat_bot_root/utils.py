@@ -5,6 +5,7 @@ import unicodedata
 from fastapi import HTTPException
 # from common.common_utils import to_dict_data, sort_value_use_key
 from dotenv import load_dotenv
+import pytesseract
 
 load_dotenv()
 
